@@ -1,0 +1,28 @@
+name: ageLANServer
+services:
+  server:
+    build:
+      # context is the repo root (two levels up from tools/server-docker-unified/)
+      context: ../..
+      dockerfile: tools/server-docker-unified/Dockerfile
+    # host networking is required for UDP LAN broadcast/multicast to work.
+    # Note: port 443 must be free on the host.
+    network_mode: host
+    volumes:
+      # Certificates persist across container restarts; generated on first run.
+      - certs:/app/resources/certificates
+      # Drop a custom config.toml here to override server defaults (optional).
+      # Must be writable so the entrypoint can seed per-game config files on first run.
+      - config:/app/resources/config
+      - logs:/app/logs
+    environment:
+      # Set to the single game you want this container to serve.
+      # Valid values: age1, age2, age3, age4, athens
+      # Note: age4 and athens require a battle server configured in config.toml — see README.
+      - GAMES=age2
+    restart: unless-stopped
+
+volumes:
+  certs:
+  config:
+  logs:
