@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1
 
 # Build both genCert and server binaries in a single compiler stage
-FROM golang:1.26-alpine3.23 AS compiler
+FROM golang:1.26-alpine3.24 AS compiler
 WORKDIR /app
 COPY tools/server-docker-unified/go.work.template go.work
 COPY common common
+COPY battle-server-broadcast battle-server-broadcast
 COPY server server
 COPY server-genCert server-genCert
 RUN mkdir build
@@ -17,7 +18,7 @@ RUN go build -ldflags="-s -w" -o build/bin/genCert ./server-genCert
 RUN go build -ldflags="-s -w" -o build/server ./server
 
 # Compress both binaries
-FROM alpine:3.23 AS compressor
+FROM alpine:3.24 AS compressor
 RUN apk add --no-cache upx
 WORKDIR /app
 COPY --from=compiler /app/build/bin/genCert bin/genCert
@@ -25,7 +26,7 @@ COPY --from=compiler /app/build/server server
 RUN upx --lzma bin/genCert server
 
 # Runtime image — alpine (not scratch) so the entrypoint shell script can run
-FROM alpine:3.23
+FROM alpine:3.24
 EXPOSE 443
 WORKDIR /app
 COPY --from=compiler /app/build/resources resources

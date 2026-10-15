@@ -1,0 +1,38 @@
+name: Sync fork with upstream
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily at 06:00 UTC
+  workflow_dispatch: # allow manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          # Use a PAT so the resulting push triggers downstream workflows
+          # (GITHUB_TOKEN pushes do NOT trigger other Actions workflows).
+          # Create a fine-grained PAT with "Contents: Read and write" and
+          # "Workflows: Read and write", then store it as the secret SYNC_PAT.
+          token: ${{ secrets.SYNC_PAT }}
+          fetch-depth: 0
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/luskaner/ageLANServer.git
+
+      - name: Fetch upstream
+        run: git fetch upstream
+
+      - name: Merge upstream into main
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git merge upstream/main --no-edit
+
+      - name: Push to fork
+        run: git push origin main
