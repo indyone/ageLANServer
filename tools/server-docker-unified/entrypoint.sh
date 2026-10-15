@@ -19,14 +19,16 @@ if [ ! -f "resources/config/config.toml.example" ]; then
     cp "resources/config.defaults/config.toml" "resources/config/config.toml.example"
 fi
 
-# Generate SSL certificates on first run.
-# genCert exits 0 when newly generated, 8 (ErrCertCreateExisting) when they
-# already exist, and any other non-zero code on a real error.
-CERT_EXIT=0
-./bin/genCert || CERT_EXIT=$?
-if [ "$CERT_EXIT" -ne 0 ] && [ "$CERT_EXIT" -ne 8 ]; then
-    echo "Certificate generation failed (exit code: $CERT_EXIT)" >&2
-    exit "$CERT_EXIT"
+# Generate SSL certificates on first run only. Checking for the files avoids
+# depending on genCert's "already exists" exit code, which shifts between
+# upstream versions.
+if [ ! -f resources/certificates/cert.pem ] || [ ! -f resources/certificates/key.pem ]; then
+    CERT_EXIT=0
+    ./bin/genCert || CERT_EXIT=$?
+    if [ "$CERT_EXIT" -ne 0 ]; then
+        echo "Certificate generation failed (exit code: $CERT_EXIT)" >&2
+        exit "$CERT_EXIT"
+    fi
 fi
 
 # GAMES must be set to exactly one game (e.g. age1, age2, age3, age4, athens).

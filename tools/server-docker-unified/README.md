@@ -20,16 +20,14 @@ The image is built in three stages:
 
 ### First-run certificate generation
 
-On every container start, the entrypoint runs `genCert` before starting the
-server:
+On every container start, the entrypoint checks the certificates volume before
+starting the server:
 
-- **First run** — certificates do not exist yet; `genCert` generates them into
-  the mounted certificates volume and exits with code `0`.
-- **Subsequent runs** — certificates already exist; `genCert` exits with code
-  `8` (`ErrCertCreateExisting`), which the entrypoint treats as success and
-  skips silently.
-- **Any other exit code** — treated as a real error; the container stops and
-  prints the exit code.
+- **First run** — `cert.pem` and `key.pem` do not exist yet; the entrypoint runs
+  `genCert`, which generates them into the mounted certificates volume.
+- **Subsequent runs** — both files already exist; `genCert` is skipped.
+- **`genCert` failure** — any non-zero exit code is treated as a real error; the
+  container stops and prints the exit code.
 
 Because the certificates volume is mounted from outside the container, they
 persist across restarts and image updates.
