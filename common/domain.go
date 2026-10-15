@@ -2,6 +2,8 @@ package common
 
 import (
 	"fmt"
+
+	commonGame "github.com/luskaner/ageLANServer/common/game"
 )
 
 const Tld = "com"
@@ -21,6 +23,7 @@ const CdnAgeOfEmpiresSubdomain = "cdn"
 const apiAgeOfEmpiresSuffix = "." + AgeOfEmpires + dotTld
 const ApiAgeOfEmpires = ApiAgeOfEmpiresSubdomain + apiAgeOfEmpiresSuffix
 const Aoe4ApiAgeOfEmpires = ApiAgeOfEmpiresSubdomain + "-" + aoe4Marker + apiAgeOfEmpiresSuffix
+const aoe2MacWorldsEdgeDomain = "arthurlive" + apiWorldsEdge
 const CdnAgeOfEmpires = CdnAgeOfEmpiresSubdomain + "." + AgeOfEmpires + dotTld
 const playFabSuffix = "." + PlayFabDomain + dotTld
 const SubDomainAge2Prefix = "pb"
@@ -30,7 +33,7 @@ const aoe4Marker = "dr"
 
 var SelfSignedCertDomains = []string{relicDomain, "*" + worldsEdge + dotTld, "*." + AgeOfEmpires + dotTld}
 
-var hostsCache = make(map[string][]string)
+var generatedDomainsCache = make(map[string][]string)
 
 func CertDomains() []string {
 	domains := []string{"*" + playFabSuffix}
@@ -39,60 +42,64 @@ func CertDomains() []string {
 }
 
 func SelfSignedCertGame(game string) bool {
-	return game != GameAoE4 && game != GameAoM
+	return game != commonGame.AoE4 && game != commonGame.AoM
 }
 
-func GameHostsDirect(gameId string) (domains []string) {
+func GameHosts(gameId string, withMacOsExclusive bool) (domains []string) {
 	switch gameId {
-	case GameAoE4:
+	case commonGame.AoE4:
 		for i := 1; i <= 2; i++ {
 			domains = append(domains, fmt.Sprintf("%s%d%s", aoe4SubDomainPrefix, i, apiWorldsEdge))
 		}
 		fallthrough
-	case GameAoE1, GameAoE2, GameAoE3:
+	case commonGame.AoE1, commonGame.AoE2, commonGame.AoE3:
 		domains = []string{relicDomain, SubDomain + worldsEdge + dotTld}
-	case GameAoM:
+	case commonGame.AoM:
 		domains = []string{"athens-live" + apiWorldsEdge}
+	}
+	if gameId == commonGame.AoE2 && withMacOsExclusive {
+		domains = append(domains, aoe2MacWorldsEdgeDomain)
 	}
 	domains = append(domains, generateDomains(gameId)...)
 	return domains
 }
 
-func AllHosts(gameId string) (domains []string) {
-	if cache, ok := hostsCache[gameId]; ok {
-		return cache
-	}
-	domains = GameHostsDirect(gameId)
+func AllHosts(gameId string, withMacOsExclusive bool) (domains []string) {
+	domains = GameHosts(gameId, withMacOsExclusive)
 	switch gameId {
-	case GameAoM:
+	case commonGame.AoM:
 		domains = append(domains, "c15f9"+playFabSuffix)
-	case GameAoE4:
+	case commonGame.AoE4:
 		domains = append(domains, "ed603"+playFabSuffix)
 	}
-	domains = append(domains, CdnAgeOfEmpires, ApiAgeOfEmpires)
-	if gameId == GameAoE4 {
+	domains = append(domains, CdnAgeOfEmpires)
+	if gameId == commonGame.AoE4 {
 		domains = append(domains, Aoe4ApiAgeOfEmpires)
+	} else {
+		domains = append(domains, ApiAgeOfEmpires)
 	}
-	hostsCache[gameId] = domains
 	return
 }
 
 func generateDomains(gameId string) (domains []string) {
+	if cache, ok := generatedDomainsCache[gameId]; ok {
+		return cache
+	}
 	var prefix string
 	var releaseMin int
 	var subDomainReleasePart string
 	switch gameId {
-	case GameAoE2:
+	case commonGame.AoE2:
 		prefix = SubDomainAge2Prefix
-		releaseMin = 2
+		releaseMin = 7
 		subDomainReleasePart = stdSubDomainReleasePart
-	case GameAoE4:
+	case commonGame.AoE4:
 		prefix = aoe4Marker
-		releaseMin = 2
+		releaseMin = 10
 		subDomainReleasePart = "-activerelease"
-	case GameAoM:
+	case commonGame.AoM:
 		prefix = "andromeda"
-		releaseMin = 15
+		releaseMin = 22
 		subDomainReleasePart = stdSubDomainReleasePart
 	default:
 		return
@@ -110,5 +117,6 @@ func generateDomains(gameId string) (domains []string) {
 			break
 		}
 	}
+	generatedDomainsCache[gameId] = domains
 	return
 }

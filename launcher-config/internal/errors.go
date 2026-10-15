@@ -24,4 +24,6 @@ const (
 	ErrGameCertRestore
 	ErrGameCertBackup
 	ErrGamePathMissing
+	ErrInvalidDataPath
+	ErrAgentAlreadyStarted
 )

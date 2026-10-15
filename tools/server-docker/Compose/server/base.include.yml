@@ -1,0 +1,34 @@
+services:
+  gen-cert:
+    environment:
+      - GENCERT_ARGS=${GENCERT_ARGS:-}
+    build:
+      context: ../../../..
+      dockerfile: tools/server-docker/Dockerfile/genCert/Dockerfile
+    volumes:
+      - certs:/app/server/resources/certificates
+    network_mode: none
+    command: --ignoreIfExisting
+  server:
+    environment:
+      - GAME_ID=${GAME_ID:-}
+      - SERVER_ARGS=${SERVER_ARGS:-}
+    build:
+      context: ../../../..
+      dockerfile: tools/server-docker/Dockerfile/server/Dockerfile
+    depends_on:
+      gen-cert:
+        condition: service_completed_successfully
+    volumes:
+      - config_server:/app/server/resources/config:ro
+      - logs:/app/logs
+      - certs:/app/server/resources/certificates:ro
+      - type: bind
+        source: "./entrypoint.sh"
+        target: /app/entrypoint.sh
+        read_only: true
+    entrypoint: /app/entrypoint.sh
+volumes:
+  certs:
+  config_server:
+  logs:

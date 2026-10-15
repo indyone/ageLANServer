@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"slices"
 
-	"github.com/luskaner/ageLANServer/common"
+	"github.com/luskaner/ageLANServer/common/game"
 	i "github.com/luskaner/ageLANServer/server/internal"
 	"github.com/luskaner/ageLANServer/server/internal/models"
 	"github.com/luskaner/ageLANServer/server/internal/routes/wss"
@@ -15,6 +15,7 @@ type request struct {
 	MatchID       int32  `schema:"match_id"`
 	Broadcast     bool   `schema:"broadcast"`
 	Message       string `schema:"message"`
+	Metadata      string `schema:"metadata"`
 }
 
 type profileIds struct {
@@ -34,20 +35,23 @@ func SendMatchChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var toProfileIds profileIds
-	game := models.G(r)
-	if game.Title() == common.GameAoE3 {
+	g := models.G(r)
+	session := models.SessionOrPanic(r)
+	if i.BeforeTheBalticPowers(g.Title(), session.GetClientLibVersion()) {
 		var toProfileId profileId
 		if err := i.Bind(r, &toProfileId); err != nil {
 			i.JSON(&w, i.A{2})
 			return
 		}
-		toProfileIds.Ids.Data = append(toProfileIds.Ids.Data, toProfileId.Id)
+		if toProfileId.Id != 0 {
+			toProfileIds.Ids.Data = append(toProfileIds.Ids.Data, toProfileId.Id)
+		}
 	} else if err := i.Bind(r, &toProfileIds); err != nil {
 		i.JSON(&w, i.A{2})
 		return
 	}
 
-	adv, ok := game.Advertisements().GetAdvertisement(req.MatchID)
+	adv, ok := g.Advertisements().GetAdvertisement(req.MatchID)
 	if !ok {
 		i.JSON(&w, i.A{2})
 		return
@@ -63,8 +67,8 @@ func SendMatchChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	users := game.Users()
-	if game.Title() == common.GameAoM {
+	users := g.Users()
+	if g.Title() == game.AoM {
 		toProfileIds.Ids.Data = slices.DeleteFunc(toProfileIds.Ids.Data, func(id int32) bool { return id == currentUserId })
 	}
 	receivers := make([]models.User, len(toProfileIds.Ids.Data))
@@ -77,7 +81,7 @@ func SendMatchChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	currentUser, ok := game.Users().GetUserById(currentUserId)
+	currentUser, ok := g.Users().GetUserById(currentUserId)
 	if !ok {
 		i.JSON(&w, i.A{2})
 		return
@@ -86,12 +90,12 @@ func SendMatchChat(w http.ResponseWriter, r *http.Request) {
 		req.Broadcast,
 		req.Message,
 		req.MessageTypeID,
+		req.Metadata,
 		currentUser,
 		receivers,
 	)
 
-	messageEncoded := message.Encode()
-	sessions := game.Sessions()
+	sessions := g.Sessions()
 	var receiverSession models.Session
 	for _, receiver := range receivers {
 		receiverSession, ok = sessions.GetByUserId(receiver.GetId())
@@ -101,7 +105,7 @@ func SendMatchChat(w http.ResponseWriter, r *http.Request) {
 		wss.SendOrStoreMessage(
 			receiverSession,
 			"MatchReceivedChatMessage",
-			messageEncoded,
+			message.Encode(receiverSession.GetClientLibVersion()),
 		)
 	}
 	i.JSON(&w, i.A{0})

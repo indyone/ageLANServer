@@ -21,7 +21,7 @@ var ipToHosts map[string]mapset.Set[string]
 var hostToIps map[string]mapset.Set[string]
 
 func init() {
-	ClearCache()
+	ClearDNSCache()
 }
 
 func domainToIps(host string) []net.IP {
@@ -129,7 +129,7 @@ func CacheMapping(host string, ip string) {
 	}
 }
 
-func ClearCache() {
+func ClearDNSCache() {
 	failedIpToHosts = make(map[string]time.Time)
 	failedHostToIps = make(map[string]time.Time)
 	ipToHosts = make(map[string]mapset.Set[string])
@@ -179,7 +179,7 @@ func ResolveUnspecifiedIps() (ips []string) {
 	var addrs []net.Addr
 	for _, i := range interfaces {
 
-		if i.Flags&net.FlagRunning == 0 {
+		if i.Flags&net.FlagUp == 0 {
 			continue
 		}
 

@@ -12,11 +12,12 @@ Log = false
 
 [Config.Certificate]
 # Whether or not to trust the certificate of the server in user or local store, or not at all.
+# auto: resolves to 'user' in macOS and 'local' in the other systems.
+# local: trust the certificate in the local store. Requires admin rights. Requires user consent in macOS.
+# user: trust the certificate in the user store. Requires user consent. Unavailable in Linux.
 # false: do not trust the certificate. You will have to trust it manually in the proper store.
-# local: trust the certificate in the local store. Requires admin rights.
-# user: trust the certificate in the user store. Requires user consent. Only on Windows.
 # If using '{CertFilePath}' in 'Client.ExecutableArgs', this will be ignored.
-CanTrustInPc = 'local'
+CanTrustInPc = 'auto'
 # Whether to trust the certificate of the server in the game's certificate store.
 # Required for all games except AoE I: DE and AoE IV: AE.
 # false: do not trust the certificate. You will have to trust it manually if the game needs it.
@@ -63,7 +64,7 @@ AnnounceMulticastGroups = ['239.31.97.8']
 # This section only applies if starting the server.
 [Server.BattleServerManager]
 # When to use the manager to start a new Battle Server running the manager; accepted values:
-# 'required': Only for games that require it to work (AoM: RT and AoE IV: AE).
+# 'required': Only for when it is required for it to work ('steam' on macOS and AoM: RT and AoE IV: AE for all platforms).
 # 'true'.
 # 'false'.
 # Note: by default the manager will only start a new instance if one is not already running for the given game.

@@ -8,26 +8,26 @@ import (
 	"path/filepath"
 
 	mapset "github.com/deckarep/golang-set/v2"
-	"github.com/luskaner/ageLANServer/common"
+	"github.com/luskaner/ageLANServer/common/game"
 )
 
-func metadataFolder(gameId string) string {
+func (u *Path) metadataFolder() string {
 	var p string
-	switch gameId {
-	case common.GameAoE2:
+	switch u.GameId() {
+	case game.AoE2:
 		p = "metadata"
-	case common.GameAoE3:
+	case game.AoE3:
 		p = filepath.Join("Common", "RLink")
-	case common.GameAoE4:
+	case game.AoE4:
 		p = "network"
-	case common.GameAoM:
+	case game.AoM:
 		p = filepath.Join("temp", "RLink")
 	}
 	return p
 }
 
-func Metadatas(gameId string) (err error, metadatas mapset.Set[Data]) {
-	p := filepath.Join(Path(gameId), metadataFolder(gameId))
+func (u *Path) Metadatas() (err error, metadatas mapset.Set[Data]) {
+	p := filepath.Join(u.String(), u.metadataFolder())
 	if _, err = os.Stat(p); errors.Is(err, fs.ErrNotExist) {
 		oldParent := p
 		for parent := filepath.Dir(p); parent != oldParent; parent = filepath.Dir(parent) {

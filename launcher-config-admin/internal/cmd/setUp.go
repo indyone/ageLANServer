@@ -5,17 +5,16 @@ import (
 	"errors"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/luskaner/ageLANServer/common"
-	commonCmd "github.com/luskaner/ageLANServer/common/cmd"
+	launcherCommonHosts "github.com/luskaner/ageLANServer/common/hosts"
 	"github.com/luskaner/ageLANServer/common/logger"
 	"github.com/luskaner/ageLANServer/launcher-common/cert"
-	launcherCommonCmd "github.com/luskaner/ageLANServer/launcher-common/cmd"
-	launcherCommonHosts "github.com/luskaner/ageLANServer/launcher-common/hosts"
+	"github.com/luskaner/ageLANServer/launcher-common/cmd/config/admin"
 	"github.com/luskaner/ageLANServer/launcher-config-admin/internal"
 	"github.com/luskaner/ageLANServer/launcher-config-admin/internal/hosts"
-	"github.com/spf13/pflag"
 )
 
 func untrustCertificate() bool {
@@ -24,40 +23,53 @@ func untrustCertificate() bool {
 		commonLogger.Println("Successfully removed local certificate")
 		return true
 	}
-
 	commonLogger.Println("Failed to remove local certificate")
 	return false
 }
 
-func runSetUp(args []string) error {
-	fs := pflag.NewFlagSet("setup", pflag.ContinueOnError)
-	// register flags using launcher-common helpers
-	launcherCommonCmd.InitSetUp(fs)
-	commonCmd.LogRootCommand(fs, &logRoot)
+func logHostsDiagnostics() {
+	hostsPath := launcherCommonHosts.Path()
+	commonLogger.Printf("Hosts file path: %q\n", hostsPath)
+	if info, statErr := os.Stat(hostsPath); statErr != nil {
+		commonLogger.Printf("Hosts file stat failed: %v\n", statErr)
+	} else {
+		commonLogger.Printf("Hosts file info: size=%d mode=%v isDir=%v\n", info.Size(), info.Mode(), info.IsDir())
+	}
+	backupPath := filepath.Join(filepath.Dir(hostsPath), "hosts.bak")
+	commonLogger.Printf("Hosts backup path: %q\n", backupPath)
+	if info, statErr := os.Stat(backupPath); statErr != nil {
+		commonLogger.Printf("Hosts backup stat: %v\n", statErr)
+	} else {
+		commonLogger.Printf("Hosts backup info: size=%d mode=%v isDir=%v\n", info.Size(), info.Mode(), info.IsDir())
+		commonLogger.Println("If the backup already exists from a previous failed run, delete it after verifying its contents and retry.")
+	}
+}
 
-	if err := fs.Parse(args); err != nil {
-		return err
+func runSetUp(args []string) (err error, exitCode int) {
+	values, fs := admin.SetupFlagSet()
+	if err = fs.Parse(args); err != nil {
+		exitCode = common.ErrSyntax
 	}
 
 	// validate required flags
-	if launcherCommonCmd.GameId == "" {
-		return errors.New("required flag 'game' not set")
+	if values.GameId == "" {
+		return errors.New("required flag 'game' not set"), common.ErrSyntax
 	}
 
-	// original run body
-	internal.SetUp = true
-	if logRoot != "" {
-		internal.Initialize(logRoot)
+	internal.SetUp = new(true)
+	if values.LogRoot != "" {
+		internal.Initialize(values.LogRoot)
 	}
 	trustedCertificate := false
-	if len(launcherCommonCmd.AddLocalCertData) > 0 {
+	if len(values.AddLocalCertData) > 0 {
 		commonLogger.Println("Adding local certificate")
-		crt := cert.BytesToCertificate(launcherCommonCmd.AddLocalCertData)
+		crt := common.BytesToCertificate(values.AddLocalCertData)
 		if crt == nil {
 			commonLogger.Println("Failed to parse certificate")
-			os.Exit(internal.ErrLocalCertAddParse)
+			exitCode = internal.ErrLocalCertAddParse
+			return
 		}
-		if err := cert.TrustCertificates(false, []*x509.Certificate{crt}); err == nil {
+		if err = cert.TrustCertificates(false, []*x509.Certificate{crt}); err == nil {
 			commonLogger.Println("Successfully added local certificate")
 			trustedCertificate = true
 			sigs := make(chan os.Signal, 1)
@@ -66,28 +78,35 @@ func runSetUp(args []string) error {
 				_, ok := <-sigs
 				if ok {
 					untrustCertificate()
-					os.Exit(common.ErrSignal)
+					exitCode = common.ErrSignal
 				}
 			}()
 		} else {
 			commonLogger.Println("Failed to add local certificate")
-			os.Exit(internal.ErrLocalCertAdd)
+			commonLogger.Println("Error:", err)
+			exitCode = internal.ErrLocalCertAdd
+			return
 		}
 	}
-	if len(launcherCommonCmd.MapIP) > 0 {
-		commonLogger.Println("Adding IP mappings")
-		if ok, _ := launcherCommonHosts.AddHosts(launcherCommonCmd.GameId, "", "", hosts.FlushDns); ok {
+	if len(values.MapIp) > 0 {
+		commonLogger.Printf("Adding IP mappings for game %q with IP %q...\n", values.GameId, values.MapIp.String())
+		if ok, addHostsErr := launcherCommonHosts.AddHosts(values.MapIp, values.GameId, "", "", values.MacOsExclusiveMappings, hosts.FlushDns); ok {
 			commonLogger.Println("Successfully added IP mappings")
 		} else {
-			errorCode := internal.ErrIpMapAdd
+			exitCode = internal.ErrIpMapAdd
+			commonLogger.Println("Failed to add IP mappings")
+			if addHostsErr != nil {
+				commonLogger.Println("Error message:", addHostsErr)
+			} else {
+				commonLogger.Println("Error message: unknown (AddHosts returned ok=false with nil error)")
+			}
+			logHostsDiagnostics()
 			if trustedCertificate {
 				if !untrustCertificate() {
-					errorCode = internal.ErrIpMapAddRevert
+					exitCode = internal.ErrIpMapAddRevert
 				}
 			}
-			commonLogger.Println("Failed to add IP mappings")
-			os.Exit(errorCode)
 		}
 	}
-	return nil
+	return
 }

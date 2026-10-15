@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/luskaner/ageLANServer/common"
+	"github.com/luskaner/ageLANServer/common/game"
 	i "github.com/luskaner/ageLANServer/server/internal"
 	"github.com/luskaner/ageLANServer/server/internal/routes/game/advertisement/shared"
 )
@@ -58,13 +58,13 @@ type Advertisement interface {
 	UnsafeUpdatePlatformSessionId(sessionId uint64)
 	UnsafeUpdateTags(integer map[string]int32, text map[string]string)
 	UnsafeMatchesTags(integer map[string]int32, text map[string]string) bool
-	UnsafeEncode(gameId string, battleServers BattleServers) i.A
+	UnsafeEncode(gameId string, clientLibVersion uint16, battleServers BattleServers) i.A
 	UnsafeUpdate(advFrom *shared.AdvertisementUpdateRequest)
 	GetId() int32
 	GetIp() string
 	UnsafeGetHostId() int32
 	GetPeers() *i.SafeOrderedMap[int32, Peer]
-	MakeMessage(broadcast bool, content string, typeId uint8, sender User, receivers []User) Message
+	MakeMessage(broadcast bool, content string, typeId uint8, metadata string, sender User, receivers []User) Message
 	StartObserving(userId int32)
 	StopObserving(userId int32)
 	EncodePeers() []i.A
@@ -124,7 +124,7 @@ type Advertisements interface {
 	UnsafeRemovePeer(advertisementId int32, userId int32) bool
 	UnsafeDelete(adv Advertisement)
 	UnsafeFirstAdvertisement(matches func(adv Advertisement) bool) Advertisement
-	LockedFindAdvertisementsEncoded(gameId string, length int, offset int, preMatchesLocking bool, matches func(adv Advertisement) bool) i.A
+	LockedFindAdvertisementsEncoded(gameId string, clientLibVersion uint16, length int, offset int, preMatchesLocking bool, matches func(adv Advertisement) bool) i.A
 	GetUserAdvertisement(userId int32) Advertisement
 }
 
@@ -262,13 +262,13 @@ func (advs *MainAdvertisements) Store(advFrom *shared.AdvertisementHostRequest, 
 		adv.ip = fmt.Sprintf("/10.0.11.%d", rand.IntN(254)+1)
 	})
 	adv.relayRegion = advFrom.RelayRegion
-	if generateXboxSessionId {
+	if gameId != game.AoE3 && generateXboxSessionId {
 		// FIXME: This might be just slowing things down as the session is not valid
 		var scidEnd string
 		switch gameId {
-		case common.GameAoM:
+		case game.AoM:
 			scidEnd = "00006fe8b971"
-		case common.GameAoE4:
+		case game.AoE4:
 			scidEnd = "00007d18f66e"
 		default:
 			scidEnd = "000068a451d4"
@@ -327,7 +327,7 @@ func (advs *MainAdvertisements) Store(advFrom *shared.AdvertisementHostRequest, 
 	return storedAdv
 }
 
-func (adv *MainAdvertisement) MakeMessage(broadcast bool, content string, typeId uint8, sender User, receivers []User) Message {
+func (adv *MainAdvertisement) MakeMessage(broadcast bool, content string, typeId uint8, metadata string, sender User, receivers []User) Message {
 	return &MainMessage{
 		advertisementId: adv.GetId(),
 		time:            time.Now().UTC().Unix(),
@@ -336,6 +336,7 @@ func (adv *MainAdvertisement) MakeMessage(broadcast bool, content string, typeId
 		typ:             typeId,
 		sender:          sender,
 		receivers:       receivers,
+		metadata:        metadata,
 	}
 }
 
@@ -467,7 +468,7 @@ func (adv *MainAdvertisement) UnsafeMatchesTags(integer map[string]int32, text m
 }
 
 // UnsafeEncode requires advertisement read lock
-func (adv *MainAdvertisement) UnsafeEncode(gameId string, battleServers BattleServers) i.A {
+func (adv *MainAdvertisement) UnsafeEncode(gameId string, clientLibVersion uint16, battleServers BattleServers) i.A {
 	var startTime *int64
 	if i.NumberToBool(adv.startTime) {
 		startTime = &adv.startTime
@@ -478,9 +479,9 @@ func (adv *MainAdvertisement) UnsafeEncode(gameId string, battleServers BattleSe
 		adv.id,
 		adv.platformSessionId,
 	}
-	if gameId == common.GameAoE2 || gameId == common.GameAoM || gameId == common.GameAoE4 {
+	if gameId == game.AoE2 || i.SinceTheBalticPowers(gameId, clientLibVersion) || gameId == game.AoM || gameId == game.AoE4 {
 		// goodolggameslobbyid (GoG lobby ID), always 0
-		if gameId == common.GameAoE4 {
+		if gameId == game.AoE4 {
 			response = append(response, 0)
 		} else {
 			response = append(response, "0")
@@ -498,7 +499,7 @@ func (adv *MainAdvertisement) UnsafeEncode(gameId string, battleServers BattleSe
 		adv.state,
 		adv.description,
 	)
-	if gameId == common.GameAoE2 || gameId == common.GameAoM || gameId == common.GameAoE4 {
+	if gameId == game.AoE2 || i.SinceTheBalticPowers(gameId, clientLibVersion) || gameId == game.AoM || gameId == game.AoE4 {
 		response = append(response, adv.description)
 	}
 	response = append(
@@ -541,7 +542,7 @@ func (advs *MainAdvertisements) UnsafeFirstAdvertisement(matches func(adv Advert
 	return nil
 }
 
-func (advs *MainAdvertisements) LockedFindAdvertisementsEncoded(gameId string, length int, offset int, preMatchesLocking bool, matches func(adv Advertisement) bool) i.A {
+func (advs *MainAdvertisements) LockedFindAdvertisementsEncoded(gameId string, clientLibVersion uint16, length int, offset int, preMatchesLocking bool, matches func(adv Advertisement) bool) i.A {
 	var res i.A
 	_, iter := advs.store.Values()
 	for adv := range iter {
@@ -551,12 +552,12 @@ func (advs *MainAdvertisements) LockedFindAdvertisementsEncoded(gameId string, l
 				advs.locks.RLock(advId)
 				defer advs.locks.RUnlock(advId)
 				if matches(adv) {
-					res = append(res, adv.UnsafeEncode(gameId, advs.battleServers))
+					res = append(res, adv.UnsafeEncode(gameId, clientLibVersion, advs.battleServers))
 				}
 			}()
 		} else {
 			advs.WithReadLock(adv.GetId(), func() {
-				res = append(res, adv.UnsafeEncode(gameId, advs.battleServers))
+				res = append(res, adv.UnsafeEncode(gameId, clientLibVersion, advs.battleServers))
 			})
 		}
 	}

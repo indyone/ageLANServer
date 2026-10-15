@@ -2,6 +2,7 @@ package logger
 
 import (
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -11,18 +12,22 @@ import (
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/luskaner/ageLANServer/common"
 	"github.com/luskaner/ageLANServer/common/executables"
+	"github.com/luskaner/ageLANServer/common/game"
+	gameCert "github.com/luskaner/ageLANServer/common/game/cert"
+	"github.com/luskaner/ageLANServer/common/hosts"
 	commonLogger "github.com/luskaner/ageLANServer/common/logger"
 	"github.com/luskaner/ageLANServer/common/process"
 	launcherCommon "github.com/luskaner/ageLANServer/launcher-common"
 	"github.com/luskaner/ageLANServer/launcher-common/cert"
-	"github.com/luskaner/ageLANServer/launcher-common/hosts"
 	"github.com/luskaner/ageLANServer/launcher-common/userData"
 )
 
 var processesLog = []string{executables.LauncherAgent, executables.LauncherConfigAdminAgent}
 var allHosts []string
-var Cacert *cert.CA
+var Cacert *gameCert.CA
 var LogEnabled bool
+var BasePath string
+var MacOsExclusiveMappings bool
 var dataTypeToString = map[int]string{
 	userData.TypeServer: "Own Backup",
 	userData.TypeBackup: "Original Backup",
@@ -42,11 +47,11 @@ func OpenMainFileLog(gameId string) error {
 func WriteFileLog(gameId string, name string) {
 	if commonLogger.FileLogger != nil {
 		commonLogger.Prefix(name)
-		allHosts = common.AllHosts(gameId)
+		allHosts = common.AllHosts(gameId, MacOsExclusiveMappings)
 		if err := writeLog(gameId, "Auxiliar processes status", writeProcessesStatus); err != nil {
 			log.Println(err)
 		}
-		if err := writeLog(gameId, "Relevant installed certificates", writePcCertificateInfo); err != nil {
+		if err := writeLog(gameId, "Relevant installed certificates", writeUserPcCertificateInfo); err != nil {
 			commonLogger.Println(err)
 		}
 		if Cacert != nil {
@@ -54,7 +59,7 @@ func WriteFileLog(gameId string, name string) {
 				commonLogger.Println(err)
 			}
 		}
-		if gameId != common.GameAoE1 {
+		if gameId != game.AoE1 {
 			if err := writeLog(gameId, "Metadata folders", writeMetadataInfo); err != nil {
 				log.Println(err)
 			}
@@ -94,7 +99,7 @@ func Println(a ...any) {
 func writeProcessesStatus(_ string) error {
 	for _, processName := range processesLog {
 		str := processName + ": "
-		path := executables.Filename(false, processName)
+		path := executables.NativeFileName(false, processName)
 		_, proc, err := process.Process(path)
 		if err != nil {
 			str += "unknown"
@@ -186,7 +191,7 @@ func writeGameCertificateInfo(_ string) error {
 	files := []string{Cacert.TmpPath(), Cacert.BackupPath(), Cacert.OriginalPath()}
 	for _, file := range files {
 		str := filepath.Base(file) + ": "
-		_, _, certs, err := cert.ReadFromFile(file)
+		_, _, certs, err := common.ReadFromFile(file)
 		if err != nil {
 			commonLogger.Println(str + err.Error())
 			continue
@@ -199,16 +204,27 @@ func writeGameCertificateInfo(_ string) error {
 	return nil
 }
 
-func writePcCertificateInfo(_ string) error {
-	certs, err := cert.EnumCertificates(true)
+func writePcCertificateInfo(userStore bool) error {
+	commonLogger.Printf("Certificates of user %t\n", userStore)
+	certs, err := cert.EnumCertificates(userStore)
 	if err != nil {
-		return fmt.Errorf("failed to enumerate certificates: %v", err)
+		return fmt.Errorf("failed to enumerate %t certificates: %v", userStore, err)
 	}
 	return writeCertificateInfo(certs)
 }
 
+func writeUserPcCertificateInfo(_ string) error {
+	localErr := writePcCertificateInfo(false)
+	userErr := writePcCertificateInfo(true)
+	return errors.Join(localErr, userErr)
+}
+
 func writeMetadataInfo(gameId string) error {
-	if err, metadatas := userData.Metadatas(gameId); err != nil {
+	if BasePath == "" {
+		commonLogger.Println("Unknown")
+		return nil
+	}
+	if err, metadatas := userData.NewPath(BasePath, gameId).Metadatas(); err != nil {
 		return err
 	} else {
 		writeDataInfo(metadatas)
@@ -217,7 +233,11 @@ func writeMetadataInfo(gameId string) error {
 }
 
 func writeProfilesInfo(gameId string) error {
-	if err, metadatas := userData.Profiles(gameId); err != nil {
+	if BasePath == "" {
+		commonLogger.Println("Unknown")
+		return nil
+	}
+	if err, metadatas := userData.NewPath(BasePath, gameId).Profiles(); err != nil {
 		return err
 	} else {
 		writeDataInfo(metadatas)
@@ -231,7 +251,7 @@ func writeDataInfo(datas mapset.Set[userData.Data]) {
 		counter[typ] = 0
 	}
 	for data := range datas.Iter() {
-		counter[data.Type]++
+		counter[data.Type()]++
 	}
 	for typ, count := range counter {
 		commonLogger.Printf("%s: %d\n", dataTypeToString[typ], count)

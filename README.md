@@ -1,4 +1,5 @@
 # Age LAN Server
+<img width="1024" height="572" alt="ageLANServer logo" src="https://github.com/user-attachments/assets/3a467da6-048c-460e-b78f-1fdf46629f70" />
 
 Age LAN Server (formerly *AoE 2 DE LAN Server*) is a web server (with its launcher) that allows you to play multiplayer
 lobbies without having an
@@ -150,9 +151,9 @@ is in maintenance or is eventually shutdown.
 
 #### Stable
 
-- **Windows**: 7 (or equivalent, 10 or higher recommended).
-- **Linux**: kernel 3.2 (see [here](https://go.dev/wiki/Linux) for more details).
-- **macOS**: Monterey (v12).
+- **Windows**: 7 or equivalent (10 or higher recommended).
+- **Linux**: kernel 3.2 (5.10 or higher recommended, see [here](https://go.dev/wiki/Linux) for more details).
+- **macOS**: Monterey v12 (Sonoma v14 or higher recommended).
 
 Admin rights or firewall permission to listen on port 443 (https) will likely be required depending on the operating
 system and configuration.
@@ -173,9 +174,12 @@ Note: For the full list see [minimum requirements for Go](https://go.dev/wiki/Mi
 - Windows without S edition/mode (recommended):
     - 7 on x86-64 (10 or higher recommended).
     - 11 on ARM.
-- Linux with kernel 3.2:
+- Linux with kernel 3.2 (5.10 or higher recommended):
     - x86-64 (recommended).
     - ARM64.
+- macOS Monterey v12 (Sonoma v14 or higher recommended):
+    - Intel (recommended).
+    - Apple Silicon. Required for AoE II: DE native Steam version in Launcher.
 
 **Note for launcher: If you allow (and is needed) to handle the hosts file, local certificate, or an elevated custom
 game launcher,
@@ -190,7 +194,7 @@ it will require admin rights elevation.**
 - Age of Empires II: Definitive Edition
   on [Steam](https://store.steampowered.com/app/813780/Age_of_Empires_II_Definitive_Edition)
   or [Xbox](https://www.xbox.com/games/store/age-of-empires-ii-definitive-edition/9N42SSSX2MTG/0010) (*only on a
-  compatible Windows version*). Recommended a late 2023 version or later.
+  compatible Windows version*). Minimum a mid 2024 version or later.
 - Age of Empires III: Definitive Edition
   on [Steam](https://store.steampowered.com/app/933110/Age_of_Empires_III_Definitive_Edition)
   or [Xbox](https://www.xbox.com/games/store/age-of-empires-iii-definitive-edition/9n1hf804qxn4) (*only on a compatible
@@ -221,6 +225,7 @@ supported operating systems.
     * Linux:
         * **x86-64**: ...\_full\_*A.B.C*_linux_x86-64.tar.gz
         * **ARM64**: ...\_full\_*A.B.C*_linux_arm64.tar.gz
+    * macOS: ...\_full\_*A.B.C*_mac.tar.gz
 * Launcher:
     * Windows:
         * **7 on x86-64**: ...\_launcher\_*A.B.C*_win7_x86-64.zip
@@ -229,6 +234,7 @@ supported operating systems.
     * Linux:
         * **x86-64**: ...\_launcher\_*A.B.C*_linux_x86-64.tar.gz
         * **ARM64**: ...\_launcher\_*A.B.C*_linux_arm64.tar.gz
+    * macOS: ...\_launcher\_*A.B.C*_mac.tar.gz
 * Battle Server Manager:
     * Windows:
         * **7 on x86-64**: ...\_battle-server-manager\_*A.B.C*_win7_x86-64.zip
@@ -237,6 +243,7 @@ supported operating systems.
     * Linux:
         * **x86-64**: ...\_battle-server-manager\_*A.B.C*_linux_x86-64.tar.gz
         * **ARM64**: ...\_battle-server-manager\_*A.B.C*_linux_arm64.tar.gz
+    * macOS: ...\_battle-server-manager\_*A.B.C*_mac.tar.gz
 * Server:
     * Windows:
         * **7, Server 2008 R2, Home Server 2011, Embedded 7 on x86-64**:
@@ -262,6 +269,11 @@ supported operating systems.
 </details>
 
 *Note: If you are using Antivirus it may flag one or more executables as virus, this is a **false positive***.
+
+*Note: On macOS, downloaded binaries are quarantined by Gatekeeper and may be refused as unverified as releases
+are not notarized. From the extracted download directory, run the following in the terminal to clear it:*
+`xattr -dr com.apple.quarantine .` *(alternatively, right-click each binary and choose Open). Self-built binaries
+are unaffected.*
 
 ### Verification
 
@@ -299,7 +311,7 @@ decompress and run them.
 ### Server
 
 The server is simple web server that listens to the game's API requests. The server reimplements
-the minimum required API surface to allow the game to work with lobbies. NO data is stored or sent via the internet.
+the minimum required API surface to allow the game to work with lobbies. Some requests are partially proxied to cdn.ageofempires.com and api.ageofempires.com and a request is used to get the public IP
 
 *Note: See the [server README](server/README.md) for more details.*
 

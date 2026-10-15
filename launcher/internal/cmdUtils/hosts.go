@@ -6,35 +6,31 @@ import (
 	"net"
 	"path/filepath"
 
-	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/luskaner/ageLANServer/common"
-	commonExecutor "github.com/luskaner/ageLANServer/common/executor"
 	"github.com/luskaner/ageLANServer/common/executor/exec"
+	"github.com/luskaner/ageLANServer/common/hosts"
 	commonLogger "github.com/luskaner/ageLANServer/common/logger"
-	"github.com/luskaner/ageLANServer/launcher-common/cmd"
-	"github.com/luskaner/ageLANServer/launcher-common/hosts"
+	"github.com/luskaner/ageLANServer/common/server"
 	"github.com/luskaner/ageLANServer/launcher/internal"
 	"github.com/luskaner/ageLANServer/launcher/internal/cmdUtils/logger"
 	"github.com/luskaner/ageLANServer/launcher/internal/executor"
-	"github.com/luskaner/ageLANServer/launcher/internal/server"
 )
 
-func (c *Config) MapHosts(gameId string, ip string, canMap bool, customHostFile bool) (errorCode int) {
+func (c *Config) MapHosts(gameId string, ip string, macOsExclusiveMappings bool, canMap bool, customHostFile bool) (exitCode int) {
 	var mapIP bool
-	ips := mapset.NewThreadUnsafeSet[string]()
 	if !customHostFile {
-		for _, domain := range common.AllHosts(gameId) {
+		for _, domain := range common.AllHosts(gameId, macOsExclusiveMappings) {
 			if !common.Matches(ip, domain) {
 				if !canMap {
 					logger.Println("serverStart is false and canAddHost is false but 'server' does not match " + domain + ". You should have added the host ip mapping to it in the hosts file (or just set canAddHost to true).")
-					errorCode = internal.ErrConfigIpMap
+					exitCode = internal.ErrConfigIpMap
 					return
 				}
-
 				mapIP = true
-			} else if !server.CheckConnectionFromServer(domain, true, nil) {
+			} else if err := server.CheckConnectionFromServer(domain, true, nil); err != nil {
 				logger.Println("serverStart is false and host matches. " + domain + " must be reachable. Review the host is reachable via this domain to TCP port 443 (HTTPS).")
-				errorCode = internal.ErrServerUnreachable
+				logger.Printf("Error: %s\n", err.Error())
+				exitCode = internal.ErrServerUnreachable
 				return
 			}
 		}
@@ -42,48 +38,60 @@ func (c *Config) MapHosts(gameId string, ip string, canMap bool, customHostFile 
 		mapIP = true
 	}
 	if mapIP {
-		ips.Add(ip)
-	}
-	if !ips.IsEmpty() {
 		var str string
 		if customHostFile {
 			hostFileLock, err := hosts.CreateTemp()
 			if err != nil {
+				logger.Printf("Failed to create temp hosts file with IP %q: %s\n", ip, err.Error())
 				return internal.ErrConfigIpMapAdd
 			}
 			tmpName := hostFileLock.File.Name()
 			c.hostFilePath, _ = filepath.Abs(tmpName)
 			str += fmt.Sprintf("Saving hosts to '%s' file", tmpName)
 			if err = hostFileLock.Unlock(); err != nil {
+				logger.Printf("Failed to unlock temp hosts file %q: %s\n", tmpName, err.Error())
 				return internal.ErrConfigIpMapAdd
 			}
 		} else {
-			str += "Adding hosts to hosts file"
-			if !commonExecutor.IsAdmin() {
-				str += ", authorize 'config-admin-agent' if needed"
-			}
+			str += fmt.Sprintf("Adding hosts to hosts file with IP %q", ip)
 		}
 		logger.Println(str + "...")
 		var err error
 		if err = commonLogger.FileLogger.Buffer("config_setup_hosts", func(writer io.Writer) {
-			if result := executor.RunSetUp(gameId, ips, nil, nil, nil, false, false, true, c.hostFilePath, "", "", writer, func(options exec.Options) {
+			cfgSetupOpts := executor.NewConfigSetupOptions()
+			cfgSetupOpts.Out = writer
+			cfgSetupOpts.OptionsFn = func(options exec.Options) {
 				commonLogger.Println("run config setup for hosts", options.String())
-			}); !result.Success() {
-				logger.Println("Failed to add hosts.")
+			}
+			cfgSetupOpts.GameId = gameId
+			cfgSetupOpts.MapIp = net.ParseIP(ip)
+			cfgSetupOpts.MacOsExclusiveMappings = macOsExclusiveMappings
+			cfgSetupOpts.HostFilePath = c.hostFilePath
+			cfgSetupOpts.AgentEndOnError = !c.RequiresConfigRevert()
+			if result := cfgSetupOpts.RunSetUp(); !result.Success() {
+				logger.Printf("Failed to add hosts with IP %q.\n", ip)
 				if result.Err != nil {
 					logger.Println("Error message: " + result.Err.Error())
+				} else {
+					logger.Println("Error message: none (check the 'config_setup_hosts' and 'config-admin_setup_hosts' log files for details).")
 				}
 				if result.ExitCode != common.ErrSuccess {
 					logger.Printf(`Exit code: %d.`+"\n", result.ExitCode)
+				} else {
+					logger.Println("Exit code: none (process reported failure without exit code).")
 				}
-				errorCode = internal.ErrConfigIpMapAdd
+				if logFolder := commonLogger.FileLogger.Folder(); logFolder != "" {
+					logger.Printf("Check log folder %q for 'config_setup_hosts*' and 'config-admin_setup_hosts*' files.\n", logFolder)
+				}
+				exitCode = internal.ErrConfigIpMapAdd
 			} else if customHostFile {
 				if parsedIP := net.ParseIP(ip); parsedIP != nil {
-					cmd.MapIP = parsedIP
-				}
-				mappings := hosts.Mappings(gameId)
-				for hostToCache, ipToCache := range mappings {
-					common.CacheMapping(string(hostToCache), ipToCache.String())
+					mappings := hosts.Mappings(gameId, parsedIP, macOsExclusiveMappings)
+					for hostToCache, ipToCache := range mappings {
+						common.CacheMapping(string(hostToCache), ipToCache.String())
+					}
+				} else {
+					exitCode = internal.ErrConfigIpMapAdd
 				}
 			}
 		}); err != nil {

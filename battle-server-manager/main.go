@@ -2,6 +2,7 @@ package main
 
 import (
 	"battle-server-manager/internal/cmd"
+	"fmt"
 	"os"
 
 	"github.com/luskaner/ageLANServer/common"
@@ -14,7 +15,9 @@ func main() {
 	commonLogger.Initialize(os.Stdout)
 	cmd.Version = version
 	common.ChdirToExe()
-	if err := cmd.Execute(); err != nil {
-		panic(err)
+	err, exitCode := cmd.Execute()
+	if err != nil {
+		fmt.Print(err)
 	}
+	os.Exit(exitCode)
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -17,6 +18,7 @@ const ServerGenCert = "genCert"
 const Launcher = "launcher"
 const LauncherAgent = "agent"
 const LauncherConfig = "config"
+const ConfigHelper = "config-helper"
 const LauncherConfigAdmin = "config-admin"
 const LauncherConfigAdminAgent = "config-admin-agent"
 
@@ -30,12 +32,31 @@ var directories = []string{
 	fmt.Sprintf(`%c..%c..%c`, filepath.Separator, filepath.Separator, filepath.Separator),
 }
 
-func Filename(bin bool, executable string) string {
-	filename := fileName(executable)
+func NativeFileName(bin bool, executable string) string {
+	return FileName(bin, executable, nil)
+}
+
+func FileName(bin bool, executable string, transfileName func(name string) string) string {
+	if transfileName == nil {
+		transfileName = fileName
+	}
+	filename := transfileName(executable)
 	if !bin {
 		filename = filepath.Join("bin", filename)
 	}
 	return filename
+}
+
+func ArchFileName(bin bool, executable string, transfileName func(name string) string) string {
+	return FileName(bin, fmt.Sprintf("%s_%s", executable, runtime.GOARCH), transfileName)
+}
+
+func WindowsFileName(name string) string {
+	return name + ".exe"
+}
+
+func UnixFileName(name string) string {
+	return name
 }
 
 func BaseNameNoExt(fileName string) string {

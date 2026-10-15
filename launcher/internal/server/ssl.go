@@ -1,60 +1,27 @@
 package server
 
 import (
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/luskaner/ageLANServer/common"
+	"github.com/luskaner/ageLANServer/common/cmd"
+	"github.com/luskaner/ageLANServer/common/cmd/genCert"
 	"github.com/luskaner/ageLANServer/common/executables"
 	"github.com/luskaner/ageLANServer/common/executor/exec"
 	commonLogger "github.com/luskaner/ageLANServer/common/logger"
+	"github.com/luskaner/ageLANServer/common/server"
 )
-
-func TlsConfig(serverName string, insecureSkipVerify bool, rootCAs *x509.CertPool) *tls.Config {
-	return &tls.Config{
-		InsecureSkipVerify: insecureSkipVerify,
-		ServerName:         serverName,
-		RootCAs:            rootCAs,
-	}
-}
-
-func connectToServer(host string, insecureSkipVerify bool, rootCAs *x509.CertPool) *tls.Conn {
-	ips := common.HostOrIpToIps(host)
-	var ip string
-	if len(ips) == 0 {
-		ip = host
-	} else {
-		ip = ips[0]
-	}
-	conn, err := tls.Dial("tcp4", net.JoinHostPort(ip, "443"), TlsConfig(host, insecureSkipVerify, rootCAs))
-	if err != nil {
-		return nil
-	}
-	return conn
-}
-
-func CheckConnectionFromServer(host string, insecureSkipVerify bool, rootCAs *x509.CertPool) bool {
-	conn := connectToServer(host, insecureSkipVerify, rootCAs)
-	if conn == nil {
-		return false
-	}
-	defer func() {
-		_ = conn.Close()
-	}()
-	return conn != nil
-}
 
 func ReadCACertificateFromServer(host string) *x509.Certificate {
 	tr := &http.Transport{
-		TLSClientConfig: TlsConfig(host, true, nil),
+		TLSClientConfig: server.TlsConfig(host, true, nil),
 	}
 	ips := common.HostOrIpToIps(host)
 	var ip string
@@ -104,11 +71,13 @@ func ReadCACertificateFromServer(host string) *x509.Certificate {
 
 func GenerateCertificatePair(certificateFolder string, optionsFn func(options exec.Options)) (result *exec.Result) {
 	baseFolder := filepath.Join(certificateFolder, "..", "..")
-	exePath := filepath.Join(baseFolder, executables.Filename(false, executables.ServerGenCert))
+	exePath := filepath.Join(baseFolder, executables.NativeFileName(false, executables.ServerGenCert))
 	if _, err := os.Stat(exePath); err != nil {
 		return nil
 	}
-	options := exec.Options{File: exePath, Wait: true, Args: []string{"-r"}, ExitCode: true}
+	values, singleFs := genCert.SingleFlagSet("", nil)
+	values.Replace = true
+	options := exec.Options{File: exePath, Wait: true, Args: cmd.FlagSetToArgs(singleFs.Fs(), false), ExitCode: true}
 	optionsFn(options)
 	result = options.Exec()
 	return

@@ -8,26 +8,25 @@ import (
 	"github.com/luskaner/ageLANServer/common"
 	"github.com/luskaner/ageLANServer/common/executables"
 	commonExecutor "github.com/luskaner/ageLANServer/common/executor/exec"
+	"github.com/luskaner/ageLANServer/common/game/executor/base"
+	"github.com/luskaner/ageLANServer/common/game/executor/custom"
 	commonLogger "github.com/luskaner/ageLANServer/common/logger"
 	commonProcess "github.com/luskaner/ageLANServer/common/process"
 	"github.com/luskaner/ageLANServer/launcher/internal"
 	"github.com/luskaner/ageLANServer/launcher/internal/cmdUtils/logger"
 	"github.com/luskaner/ageLANServer/launcher/internal/executor"
 	"github.com/luskaner/ageLANServer/launcher/internal/game/battleServerBroadcast"
-	gameExecutor "github.com/luskaner/ageLANServer/launcher/internal/game/executor"
 )
 
 func (c *Config) KillAgent() {
-	agent := executables.Filename(false, executables.LauncherAgent)
-	logger.Println("Killing 'agent' if needed...")
+	agent := executables.NativeFileName(false, executables.LauncherAgent)
 	err := commonProcess.Kill(agent)
 	if err != nil {
 		logger.Println("Failed to kill it: ", err, ", try using the task manager.")
-		return
 	}
 }
 
-func (c *Config) LaunchAgentAndGame(executer gameExecutor.Exec, customExecutor gameExecutor.CustomExec, clientExecutableArgs []string, canTrustCertificate string, canBroadcastBattleServer string) (errorCode int) {
+func (c *Config) LaunchAgentAndGame(executer base.Executor, customExecutor custom.Exec, clientExecutableArgs []string, canTrustCertificate string, canBroadcastBattleServer string, basePath string) (exitCode int) {
 	if canBroadcastBattleServer != "false" {
 		if battleServerBroadcast.Required() {
 			canBroadcastBattleServer = "true"
@@ -44,24 +43,23 @@ func (c *Config) LaunchAgentAndGame(executer gameExecutor.Exec, customExecutor g
 			str += ", authorize it in firewall if needed"
 		}
 		logger.Println(str + "...")
-		steamProcess, xboxProcess := executer.GameProcesses()
+		steamProcess, steamMacOsNative, xboxProcess := executer.GameProcesses()
 		var err error
 		var f *os.File
 		if f, err = commonLogger.FileLogger.Open("agent"); err != nil {
 			logger.Println("Error message: " + err.Error())
 			return common.ErrFileLog
 		}
-		if loggerPath == "" {
-			loggerPath = "-"
-		}
 		result := executor.StartAgent(
 			c.gameId,
 			steamProcess,
+			steamMacOsNative,
 			xboxProcess,
 			c.serverExe,
 			canBroadcastBattleServer == "true",
 			c.battleServerExe,
 			c.battleServerRegion,
+			basePath,
 			loggerPath,
 			f,
 			func(options commonExecutor.Options) {
@@ -70,7 +68,7 @@ func (c *Config) LaunchAgentAndGame(executer gameExecutor.Exec, customExecutor g
 		)
 		if !result.Success() {
 			logger.Println("Failed to start 'agent'.")
-			errorCode = internal.ErrAgentStart
+			exitCode = internal.ErrAgentStart
 			if result.Err != nil {
 				logger.Println("Error message: " + result.Err.Error())
 			}
@@ -109,7 +107,7 @@ func (c *Config) LaunchAgentAndGame(executer gameExecutor.Exec, customExecutor g
 	args, err := ParseCommandArgs(clientExecutableArgs, values)
 	if err != nil {
 		logger.Println("Failed to parse client executable arguments")
-		errorCode = internal.ErrInvalidClientArgs
+		exitCode = internal.ErrInvalidClientArgs
 		return
 	}
 
@@ -126,7 +124,7 @@ func (c *Config) LaunchAgentAndGame(executer gameExecutor.Exec, customExecutor g
 		}
 	}
 	if !result.Success() {
-		errorCode = internal.ErrGameLauncherStart
+		exitCode = internal.ErrGameLauncherStart
 		if result.Err != nil {
 			logger.Println("Game failed to start. Error message: " + result.Err.Error())
 		}

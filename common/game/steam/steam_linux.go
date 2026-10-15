@@ -1,10 +1,11 @@
 package steam
 
 import (
-	"os"
+	"path/filepath"
 	"strings"
 
-	"mvdan.cc/sh/v3/shell"
+	"github.com/luskaner/ageLANServer/common/game"
+	"github.com/luskaner/ageLANServer/common/game/wine"
 )
 
 const suffixDir = ".steam/steam"
@@ -29,20 +30,20 @@ var dirs = []string{
 }
 
 func ConfigPath() string {
-	var stat os.FileInfo
-	for _, dir := range dirs {
-		convertedDir, err := shell.Expand(strings.ReplaceAll(dir, "{suffixDir}", suffixDir), nil)
-		if err != nil {
-			continue
-		}
-		if stat, err = os.Stat(convertedDir); err == nil && stat.IsDir() {
-			return convertedDir
-		}
-	}
-	return ""
+	return game.FirstExistingDir(dirs, func(s string) string {
+		return strings.ReplaceAll(s, "{suffixDir}", suffixDir)
+	})
 }
 
 func ConfigPathAlt() (path string) {
 	// No known alternatives
 	return
+}
+
+func UserProfilePath(gameId string) string {
+	suffix := ConfigPath()
+	if suffix == "" {
+		return ""
+	}
+	return filepath.Join(suffix, "steamapps", "compatdata", appId(gameId), "pfx", wine.UserProfile("steamuser"))
 }

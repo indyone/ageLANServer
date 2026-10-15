@@ -44,7 +44,7 @@ func AuthMiddlewareOffline(next http.HandlerFunc) http.Handler {
 }
 
 func AuthMiddleware(next http.HandlerFunc, gameId string, cached bool) http.Handler {
-	hosts := common.GameHostsDirect(gameId)
+	hosts := common.GameHosts(gameId, true)
 	hostToIp := make(map[string]string)
 	for _, host := range hosts {
 		if ip, err := common.DirectHostToIP(host); err == nil {
@@ -125,7 +125,7 @@ func AuthMiddleware(next http.HandlerFunc, gameId string, cached bool) http.Hand
 				return
 			}
 
-			if int(errorCode) != 0 {
+			if int(errorCode) != common.ErrSuccess {
 				i.RawJSON(&w, respBody)
 				return
 			}

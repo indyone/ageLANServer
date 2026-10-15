@@ -3,16 +3,17 @@ package advertisement
 import (
 	"net/http"
 
-	"github.com/luskaner/ageLANServer/common"
+	"github.com/luskaner/ageLANServer/common/game"
 	i "github.com/luskaner/ageLANServer/server/internal"
 	"github.com/luskaner/ageLANServer/server/internal/models"
 	"github.com/luskaner/ageLANServer/server/internal/routes/game/advertisement/shared"
 )
 
-func returnError(battleServers models.BattleServers, gameId string, r *http.Request, w *http.ResponseWriter) {
+func returnError(battleServers models.BattleServers, gameId string, clientLibVersion uint16, r *http.Request, w *http.ResponseWriter) {
 	battleServer := battleServers.NewBattleServer("")
 	response := encodeHostResponse(
 		gameId,
+		clientLibVersion,
 		2,
 		0,
 		battleServer,
@@ -25,7 +26,7 @@ func returnError(battleServers models.BattleServers, gameId string, r *http.Requ
 	i.JSON(w, response)
 }
 
-func encodeHostResponse(gameTitle string, errorCode int, advId int32, battleServer models.BattleServer, r *http.Request, relayRegion string, encodedPeers []i.A, metadata string, description string) i.A {
+func encodeHostResponse(gameTitle string, clientLibVersion uint16, errorCode int, advId int32, battleServer models.BattleServer, r *http.Request, relayRegion string, encodedPeers []i.A, metadata string, description string) i.A {
 	response := i.A{
 		errorCode,
 		advId,
@@ -38,18 +39,20 @@ func encodeHostResponse(gameTitle string, errorCode int, advId int32, battleServ
 		encodedPeers,
 		0,
 	)
-	switch gameTitle {
-	case common.GameAoE1:
+	switch {
+	case gameTitle == game.AoE1:
 		response = append(response, metadata)
-	case common.GameAoE2, common.GameAoE4, common.GameAoM:
+	case gameTitle == game.AoE2 || i.SinceTheBalticPowers(gameTitle, clientLibVersion) || gameTitle == game.AoE4 || gameTitle == game.AoM:
 		response = append(
 			response,
 			0,
-			nil,
-			nil,
-			metadata,
-			description,
 		)
+		if gameTitle == game.AoE3 {
+			response = append(response, "")
+		} else {
+			response = append(response, nil)
+		}
+		response = append(response, nil, metadata, description)
 	default:
 		response = append(response, "0")
 	}
@@ -57,15 +60,16 @@ func encodeHostResponse(gameTitle string, errorCode int, advId int32, battleServ
 }
 
 func Host(w http.ResponseWriter, r *http.Request) {
-	game := models.G(r)
-	gameTitle := game.Title()
-	battleServers := game.BattleServers()
+	g := models.G(r)
+	gameTitle := g.Title()
+	battleServers := g.BattleServers()
 	region := r.PostFormValue("relayRegion")
 	battleServer := battleServers.NewBattleServer(region)
+	sess := models.SessionOrPanic(r)
 	if !battleServer.LAN() {
 		var ok bool
-		if battleServer, ok = game.BattleServers().Get(region); !ok {
-			returnError(battleServers, gameTitle, r, &w)
+		if battleServer, ok = g.BattleServers().Get(region); !ok {
+			returnError(battleServers, gameTitle, sess.GetClientLibVersion(), r, &w)
 			return
 		}
 	}
@@ -73,27 +77,27 @@ func Host(w http.ResponseWriter, r *http.Request) {
 	var adv shared.AdvertisementHostRequest
 	if err := i.Bind(r, &adv); err == nil {
 		// In AoE4 we cannot differentiate between Matchmaking and custom matches so just allow it
-		if gameTitle != common.GameAoE4 && adv.Description == "SESSION_MATCH_KEY" {
+		if gameTitle != game.AoE4 && adv.Description == "SESSION_MATCH_KEY" {
 			// Disallow Matchmaking as it is not implemented
-			returnError(battleServers, gameTitle, r, &w)
+			returnError(battleServers, gameTitle, sess.GetClientLibVersion(), r, &w)
 			return
 		}
 		if adv.Id != -1 {
-			returnError(battleServers, gameTitle, r, &w)
+			returnError(battleServers, gameTitle, sess.GetClientLibVersion(), r, &w)
 			return
 		}
-		if gameTitle == common.GameAoE1 || gameTitle == common.GameAoE3 || gameTitle == common.GameAoM {
+		if gameTitle == game.AoE1 || i.BeforeTheBalticPowers(gameTitle, sess.GetClientLibVersion()) || gameTitle == game.AoM {
 			adv.Joinable = true
 		}
-		u, ok := game.Users().GetUserById(adv.HostId)
+		u, ok := g.Users().GetUserById(adv.HostId)
 		if !ok {
-			returnError(battleServers, gameTitle, r, &w)
+			returnError(battleServers, gameTitle, sess.GetClientLibVersion(), r, &w)
 			return
 		}
-		advertisements := game.Advertisements()
+		advertisements := g.Advertisements()
 		// Leave the previous match if the user is already in one
 		// Necessary for AoE3 but might as well do it for all (except AoE4 which needs multiple for groups)
-		if gameTitle != common.GameAoE4 {
+		if gameTitle != game.AoE4 {
 			// FIXME: Exit in aoe4 if the currrent match is not a party
 			if existingAdv := advertisements.GetUserAdvertisement(u.GetId()); existingAdv != nil {
 				advertisements.WithWriteLock(existingAdv.GetId(), func() {
@@ -103,9 +107,9 @@ func Host(w http.ResponseWriter, r *http.Request) {
 		}
 		if adv.Party != -1 {
 			if partyAdv, ok := advertisements.GetAdvertisement(adv.Party); !ok {
-				returnError(battleServers, gameTitle, r, &w)
+				returnError(battleServers, gameTitle, sess.GetClientLibVersion(), r, &w)
 			} else if partyAdv.GetParty() != -1 {
-				returnError(battleServers, gameTitle, r, &w)
+				returnError(battleServers, gameTitle, sess.GetClientLibVersion(), r, &w)
 			}
 		}
 		storedAdv := advertisements.Store(
@@ -121,6 +125,7 @@ func Host(w http.ResponseWriter, r *http.Request) {
 			}
 			response = encodeHostResponse(
 				gameTitle,
+				sess.GetClientLibVersion(),
 				0,
 				storedAdv.GetId(),
 				battleServer,
@@ -134,9 +139,9 @@ func Host(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			i.JSON(&w, response)
 		} else {
-			returnError(battleServers, gameTitle, r, &w)
+			returnError(battleServers, gameTitle, sess.GetClientLibVersion(), r, &w)
 		}
 	} else {
-		returnError(battleServers, gameTitle, r, &w)
+		returnError(battleServers, gameTitle, sess.GetClientLibVersion(), r, &w)
 	}
 }

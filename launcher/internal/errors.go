@@ -36,8 +36,8 @@ const (
 	ErrInvalidClientArgs
 	ErrInvalidSetupCommand
 	ErrInvalidRevertCommand
+	ErrInvalidIsolationPath
 	ErrSetupCommand
-	ErrSteamRoot
 	ErrAnnouncementMulticastGroup
 	ErrCertMismatch
 	ErrInvalidServerBattleServerManagerRun
@@ -47,4 +47,5 @@ const (
 	ErrInvalidIsolateProfiles
 	ErrRequiredIsolation
 	ErrGameConfigParse
+	ErrFlushCache
 )

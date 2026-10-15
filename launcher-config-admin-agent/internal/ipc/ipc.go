@@ -3,6 +3,7 @@ package ipc
 import (
 	"crypto/x509"
 	"encoding/gob"
+	"errors"
 	"io"
 	"net"
 
@@ -26,6 +27,10 @@ func handleClient(logRoot string, c net.Conn) (exit bool) {
 
 	for !exit {
 		if err = decoder.Decode(&action); err != nil {
+			if errors.Is(err, io.EOF) {
+				commonLogger.Println("Closing connection...")
+				return
+			}
 			commonLogger.Println("Could not decode action:", err)
 			str := "-> ErrDecode: "
 			if err = encoder.Encode(internal.ErrDecode); err != nil {
@@ -34,7 +39,7 @@ func handleClient(logRoot string, c net.Conn) (exit bool) {
 				str += "OK"
 			}
 			commonLogger.Println(str)
-			return
+			continue
 		}
 
 		var exitCode = internal.ErrNonExistingAction
@@ -114,8 +119,6 @@ func handleSetUp(logRoot string, decoder *gob.Decoder) int {
 
 		str += "OK"
 		commonLogger.Println(str)
-	} else {
-		commonLogger.Println("No certificate")
 	}
 	var suffix string
 	if cert != nil {
@@ -125,7 +128,7 @@ func handleSetUp(logRoot string, decoder *gob.Decoder) int {
 	}
 	var result *exec.Result
 	if buffErr := commonLogger.FileLogger.Buffer("config-admin_setup"+suffix, func(writer io.Writer) {
-		result = executor.RunSetUp(msg.GameId, msg.IP, cert, logRoot, writer, func(options exec.Options) {
+		result = executor.RunSetUp(msg.GameId, msg.IP, msg.MacOsExclusiveMappings, cert, logRoot, writer, func(options exec.Options) {
 			if writer != nil {
 				commonLogger.Println("run config admin setup", options.String())
 			}
@@ -171,11 +174,11 @@ func handleRevert(logRoot string, decoder *gob.Decoder) int {
 	return result.ExitCode
 }
 
-func StartServer(logRoot string) (errorCode int) {
+func StartServer(logRoot string) (exitCode int) {
 	l, err := SetupServer()
 	if err != nil {
 		commonLogger.Printf("Could not listen to IPC: %v\n", err)
-		errorCode = internal.ErrListen
+		exitCode = internal.ErrListen
 		return
 	}
 	defer func(l net.Listener) {
