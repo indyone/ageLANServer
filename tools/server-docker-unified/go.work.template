@@ -5,6 +5,7 @@ toolchain go1.26.9
 use (
 	common
 	battle-server-broadcast
+	battle-server-manager
 	server
 	server-genCert
 )

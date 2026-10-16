@@ -15,8 +15,17 @@ The image is built in three stages:
    and `server` modules using a combined `go.work` workspace.
 2. **Compressor** — Both binaries are compressed with UPX (LZMA) to reduce the
    final image size.
-3. **Runtime** — An Alpine Linux base contains the two compressed binaries, the
-   server's static resources, and the entrypoint script.
+3. **Runtime** — An Alpine Linux base contains the compressed binaries, the
+   server's static resources and the entrypoint script.
+
+The Dockerfile has two targets, published as two images:
+
+| Image | Target | Size | Contents |
+|-------|--------|------|----------|
+| `ghcr.io/indyone/agelanserver` | `server` (default) | ~30 MB | `genCert` + `server` |
+| `ghcr.io/indyone/agelanserver-battleserver` | `battleserver` | ~1.3 GB | The above plus Wine and `battle-server-manager`, so the game's Windows `BattleServer.exe` runs in the same container (see [BattleServer](#battleserver)) |
+
+Everything below applies to both unless stated.
 
 ### First-run certificate generation
 
@@ -46,10 +55,43 @@ game you want to serve. To support multiple titles, run one container per game
 | `age4`   | Age of Empires IV: Anniversary Edition | ❌ |
 | `athens` | Age of Mythology: Retold               | ❌ |
 
-> **age4 and athens require a battle server.** These titles will not start
-> without at least one battle server entry in `config.toml`. See
-> [`server/BattleServers.md`](../../server/BattleServers.md)
-> for setup instructions, then set `GAMES` to that value once configured.
+> **age4 and athens require a BattleServer.** These titles will not start
+> without one. Use the `agelanserver-battleserver` image as described in
+> [BattleServer](#battleserver), or add an external one to `config.toml` (see
+> [`server/BattleServers.md`](../../server/BattleServers.md)).
+
+### BattleServer
+
+For `age1`, `age2` and `age3` you usually do **not** need one. In the game's
+**Server** list when creating a lobby, choose **Use Local Lan Server**: your own
+game runs the BattleServer and the server only advertises the lobby.
+
+A BattleServer on the server is needed for `age4` and `athens` (the server
+refuses to start without one), and to host online-like games that do not depend
+on one player's PC (the list entry named `Server`).
+
+The BattleServer is the game's own Windows `BattleServer.exe`, which cannot be
+redistributed, so you provide it with the `agelanserver-battleserver` image:
+
+1. Copy `BattleServer.exe` from your game install (`<game>\BattleServer\` or
+   `<game>\`) into a folder on the host. Use the one from the game the container
+   serves, except for `age4` (AoE IV ships none) and `athens` (AoM's is buggy),
+   where you use the one from AoE II: DE.
+2. Mount that folder at `/app/battleserver` (read-only is fine).
+
+When `/app/battleserver/BattleServer.exe` exists, the entrypoint starts it under
+Wine before the server, using the server's own certificates. The server picks it
+up automatically, so do not also add a `[[Games.<game>.BattleServers]]` entry to
+`config.toml`. If the BattleServer stops, the container stops so its restart
+policy brings both back.
+
+It listens on TCP `27012`, `27112` and `27212`. Override them with the
+environment variables `AGELANSERVER_BATTLE_SERVER_MANAGER_Ports_Bs`,
+`..._Ports_WebSocket` and `..._Ports_OutOfBand`. Its address is the one clients
+use to reach the server, so nothing else needs configuring.
+
+The small `agelanserver` image cannot run it: it warns if `BattleServer.exe` is
+mounted, and stops for `age4`/`athens`.
 
 ### Networking
 
@@ -141,6 +183,9 @@ docker run -d \
   ghcr.io/indyone/agelanserver:latest
 ```
 
+For the BattleServer variant use `ghcr.io/indyone/agelanserver-battleserver:latest`
+and add `-v /path/to/battleserver:/app/battleserver:ro`.
+
 Replace `/path/to/certificates`, `/path/to/config`, and `/path/to/logs` with
 directories on your host. The certificates directory must be writable; the
 config directory can be empty to start with. To run more than one game, repeat
@@ -209,13 +254,14 @@ volumes:
 | `/app/resources/certificates`| Yes      | SSL certificates. Generated automatically on first run. Must be writable. |
 | `/app/resources/config`      | No       | Drop a `config.toml` here to override server defaults. Must be writable (the entrypoint seeds per-game config files into this directory on first run). |
 | `/app/logs`                  | Yes      | Server log output. Must be writable. |
+| `/app/battleserver`          | `agelanserver-battleserver` only (required for `age4`/`athens`) | Folder containing `BattleServer.exe`. See [BattleServer](#battleserver). |
 
 ### Server configuration via config.toml
 
 On first run the entrypoint seeds a fully commented `config.toml.example` into
 the config volume. To customise the server, rename it to `config.toml` and
 uncomment or adjust the settings you need. The file covers authentication,
-announce behaviour, per-game host bindings, battle servers, and more.
+announce behaviour, per-game host bindings, BattleServers, and more.
 
 > **Note:** Leave `Games.Enabled` empty in `config.toml`. Game selection is
 > handled by the `GAMES` environment variable, which takes precedence.

@@ -18,6 +18,14 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: server
+            image: agelanserver
+          - target: battleserver
+            image: agelanserver-battleserver
 
     steps:
       - name: Checkout
@@ -38,7 +46,8 @@ jobs:
         with:
           context: .
           file: tools/server-docker-unified/Dockerfile
+          target: ${{ matrix.target }}
           push: true
-          tags: ghcr.io/indyone/agelanserver:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ghcr.io/indyone/${{ matrix.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
