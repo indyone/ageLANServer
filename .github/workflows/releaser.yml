@@ -19,14 +19,25 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.9'
+          go-version: '1.27.3'
           cache-dependency-path: |
             go.work.sum
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: gui/server/config/frontend/package-lock.json
+      - name: Build frontend
+        run: |
+          cd gui/server/config/frontend
+          npm ci
+          npm run build
       - name: Set up Go legacy
         id: setup_go_legacy
         run: |
           dir="${{ vars.GOROOT_LEGACY }}"
-          version="1.26.9-1"
+          version="1.27.3-1"
           subdir="go-legacy-win7"
           curl -L https://github.com/thongtech/$subdir/releases/download/v$version/$subdir-$version.linux_amd64.tar.gz -o go.tar.gz
           sudo mkdir -p "$dir"
@@ -36,7 +47,7 @@ jobs:
       - name: Generate Goreleaser config
         shell: bash
         run: |
-          go run tools/scripts/cmd/generateGoreleaserConfig.go "${{ steps.setup_go_legacy.outputs.goroot }}"
+          go tool generateGoreleaserConfig "${{ steps.setup_go_legacy.outputs.goroot }}"
       - name: Import GPG key
         id: import_gpg
         uses: crazy-max/ghaction-import-gpg@v7
@@ -46,7 +57,7 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
-          version: '~> v2'
+          version: 'v2.19.0'
           args: release --fail-fast
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
